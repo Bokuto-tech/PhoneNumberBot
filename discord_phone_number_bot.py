@@ -78,25 +78,25 @@ def save_numbers(numbers):
 # Function to scrape phone numbers from the website
 def scrape_numbers():
     try:
-        # Send a request to the website
-        response = requests.get(WEBSITE_URL, timeout=10)
+        # Add headers to mimic a browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://www.google.com/'
+        }
+        # Send a request to the website with headers
+        response = requests.get(WEBSITE_URL, headers=headers, timeout=10)
         response.raise_for_status()  # Raise an error if the request fails
         soup = BeautifulSoup(response.text, 'html.parser')  # Parse the HTML
-        # Find all <a> tags that link to SMS pages (assumed to contain phone numbers)
-        # Adjust this selector based on the website's actual HTML structure
-        number_links = soup.find_all('div', href=lambda x: x and '/sms/' in x)
+        
+        # Fix the selector - look for 'a' tags instead of 'div' tags with href
+        number_links = soup.find_all('a', href=lambda x: x and '/sms/' in x)
         numbers = {a.text.strip() for a in number_links}  # Extract text and store in a set
         return numbers
     except requests.RequestException as e:
         print(f"Error scraping {WEBSITE_URL}: {e}")  # Print error if scraping fails
         return set()  # Return empty set on error
-    # Alternative approach: Use the phonenumbers library to extract numbers from text
-    # Install with: pip install phonenumbers
-    # Example:
-    # import phonenumbers
-    # text = soup.get_text()
-    # numbers = {phonenumbers.format_number(match.number, phonenumbers.PhoneNumberFormat.E164)
-    #            for match in phonenumbers.PhoneNumberMatcher(text, None)}
 
 # Event that runs when the bot is ready
 @bot.event
@@ -118,11 +118,30 @@ async def check_numbers():
     new_numbers = current_numbers - previous_numbers
     if new_numbers:
         # Create a message with the new numbers
-        message = "New temporary phone numbers found:\n" + "\n".join(new_numbers)
-        await channel.send(message)  # Send the message to the channel
+        header = "New temporary phone numbers found:"
+        await channel.send(header)
+        
+        # Send numbers in chunks to avoid Discord's 2000 character limit
+        chunk = []
+        current_length = 0
+        for number in new_numbers:
+            # +1 for the newline character
+            if current_length + len(number) + 1 > 1900:  # Leave some buffer
+                await channel.send("\n".join(chunk))
+                chunk = [number]
+                current_length = len(number)
+            else:
+                chunk.append(number)
+                current_length += len(number) + 1
+        
+        # Send any remaining numbers
+        if chunk:
+            await channel.send("\n".join(chunk))
+            
         print(f"Sent alert for {len(new_numbers)} new numbers")
     # Save the current numbers for the next check
     save_numbers(current_numbers)
+
 
 # Run the bot with the Discord token
 bot.run(DISCORD_TOKEN)
